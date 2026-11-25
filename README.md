@@ -23,6 +23,7 @@ Measured on a held-out test set of unseen writers, against
 |---|---|---|
 | This model (trained on MathWriting) | 0.638 | 0.078 |
 | pix2tex (off-the-shelf) | 0.000 | 4.614 |
+
 (as of November 2026)
 
 Both models are scored by the same code, with LaTeX-aware normalization so neither
