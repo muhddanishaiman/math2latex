@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Math2LaTeX — your handwriting, typeset</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slate:  #232733;   /* app chrome */
+    --panel:  #2b3040;   /* raised surfaces */
+    --line:   #3a4054;
+    --paper:  #f7f5ee;   /* the drawing canvas */
+    --grid:   #e6e2d4;
+    --ink:    #171a21;
+    --teal:   #0e7a6d;   /* primary action */
+    --teal-2: #0a5f55;
+    --amber:  #d9a13b;
+    --text:   #e9eaef;
+    --muted:  #98a0b3;
+    --radius: 10px;
+    --serif:  "STIX Two Text", Georgia, serif;
+    --mono:   ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    font: 14.5px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--slate); color: var(--text);
+  }
+  button {
+    border: 0; border-radius: 8px; padding: 9px 14px; font-size: 13.5px; font-weight: 600;
+    background: #3a4054; color: var(--text); cursor: pointer;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+  button.primary { background: var(--teal); color: #fff; }
+  button.primary:hover { background: var(--teal-2); filter: none; }
+  button.ghost { background: transparent; border: 1px solid var(--line); }
+  button.small { padding: 5px 10px; font-size: 12px; }
+  button.danger { color: #ff9d8a; }
+  button.danger:hover { background: rgba(255, 157, 138, .1); }
+  input[type="text"], input[type="password"] {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--slate); color: var(--text); font-size: 14px;
+  }
+  code { font-family: var(--mono); }
+
+  /* ---------- login ---------- */
+  #login {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: var(--slate); z-index: 50;
+  }
+  #login .card {
+    width: min(360px, 90vw); background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 30px;
+  }
+  .wordmark { font-family: var(--serif); font-size: 26px; font-weight: 600; }
+  .wordmark em { font-style: italic; color: var(--teal); font-weight: 400; }
+  #login p { color: var(--muted); margin: 8px 0 18px; }
+  #login form { display: flex; flex-direction: column; gap: 10px; }
+  #login .err { color: #ff9d8a; font-size: 13px; min-height: 18px; }
+
+  /* ---------- shell ---------- */
+  #shell { display: none; height: 100%; grid-template-columns: 232px 1fr 400px; }
+  @media (max-width: 1000px) {
+    /* stacked layout: sidebar, workbench, ledger. The shell auto-sizes, so the
+       canvas can't flex-fill — give it a fixed comfortable height instead. */
+    #shell { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; height: auto; min-height: 100%; }
+    #board-wrap { flex: none; height: 340px; }
+  }
+
+  /* sidebar */
+  #side {
+    background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; padding: 16px 12px; gap: 12px;
+  }
+  #side .wordmark { font-size: 20px; padding: 0 6px; }
+  #chat-list { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+  .chat-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--muted);
+    font-family: var(--serif); font-size: 15px;
+  }
+  .chat-item.active { background: var(--slate); color: var(--text); }
+  .chat-item:hover { color: var(--text); }
+  .chat-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-item .del { visibility: hidden; background: none; border: 0; color: var(--muted);
+                    cursor: pointer; font-size: 14px; padding: 0 2px; }
+  .chat-item:hover .del { visibility: visible; }
+  #side footer { color: var(--muted); font-size: 12px; padding: 0 6px; }
+  #side footer a { color: var(--muted); }
+
+  /* workbench */
+  #bench { display: flex; flex-direction: column; padding: 18px; gap: 12px; min-width: 0; }
+  #bench h2 { font-family: var(--serif); font-weight: 400; font-size: 17px; color: var(--muted); }
+  #bench h2 b { color: var(--text); font-weight: 600; }
+  /* board-wrap flexes to eat all leftover height in #bench, so the canvas
+     grows to fill the window instead of leaving dead space below */
+  #board-wrap { position: relative; flex: 1; min-height: 260px; }
+  #board {
+    width: 100%; height: 100%; display: block; border-radius: var(--radius);
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+      var(--paper);
+    background-size: 24px 24px, 24px 24px, auto;
+    border: 1px solid #c9c4b2; touch-action: none; cursor: crosshair;
+  }
+  #bench .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pen { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  input[type="range"] { accent-color: var(--teal); }
+  select {
+    background: var(--slate); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 8px; font-size: 13px;
+  }
+  .spacer { flex: 1; }
+  #status { color: var(--muted); font-size: 13px; min-height: 18px; }
+
+  /* ledger */
+  #ledger {
+    background: var(--panel); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  #ledger header {
+    padding: 16px 18px 10px; border-bottom: 1px solid var(--line);
+    font-family: var(--serif); font-size: 16px;
+  }
+  #entries { flex: 1; overflow: auto; padding: 12px 14px; display: flex;
+             flex-direction: column; gap: 12px; }
+  #entries .empty { color: var(--muted); font-size: 13.5px; padding: 8px 4px; }
+  .entry {
+    background: var(--slate); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .entry .hand { display: flex; align-items: center; gap: 10px; }
+  .entry .hand img {
+    height: 40px; max-width: 200px; object-fit: contain;
+    background: var(--paper); border-radius: 6px; padding: 2px 6px;
+  }
+  .entry .hand .arrow { color: var(--teal); font-size: 16px; }
+  .entry .typeset { font-size: 17px; color: #fff; overflow-x: auto; padding: 2px 0; }
+  .entry .code {
+    font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+    word-break: break-all; cursor: text; border-radius: 6px; padding: 4px 6px;
+    border: 1px dashed transparent;
+  }
+  .entry .code:hover { border-color: var(--line); }
+  .entry .code[contenteditable="true"] { border-color: var(--teal); color: var(--text); outline: none; }
+  .entry .row { display: flex; gap: 8px; align-items: center; }
+  .entry .answer {
+    border-top: 1px solid var(--line); padding-top: 8px;
+    font-size: 13.5px; white-space: pre-wrap;
+  }
+  .entry .answer .who { color: var(--amber); font-size: 12px; letter-spacing: .06em;
+                        text-transform: uppercase; display: block; margin-bottom: 4px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .entry { animation: rise .18s ease-out; }
+    @keyframes rise { from { transform: translateY(6px); opacity: 0; } }
+  }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="card">
+    <div class="wordmark">Math<em>2</em>LaTeX</div>
+    <p>Draw an equation. Get it typeset.</p>
+    <form id="login-form">
+      <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+      <button class="primary" type="submit">Sign in</button>
+      <div class="err" id="login-err"></div>
+    </form>
+  </div>
+</div>
+
+<div id="shell">
+  <nav id="side">
+    <div class="wordmark">Math<em>2</em>LaTeX</div>
+    <button class="ghost" id="new-chat">+ New chat</button>
+    <div id="chat-list"></div>
+    <footer>Model: your MathWriting-trained network · <a href="#" id="logout">sign out</a></footer>
+  </nav>
+
+  <main id="bench">
+    <h2>Write in <b id="chat-name">—</b></h2>
+    <!-- Drawing surface. The backing store is 1200x520; CSS stretches it to fill
+         the available height, and pos() rescales pointer coords accordingly. -->
+    <div id="board-wrap"><canvas id="board" width="1200" height="520"></canvas></div>
+    <div class="controls">
+      <span class="pen"><label for="pen-size">Pen</label>
+        <input type="range" id="pen-size" min="2" max="8" value="4"></span>
+      <button id="undo">Undo</button>
+      <button id="clear">Clear</button>
+      <span class="pen" title="Beam search explores several possible readings and keeps the best overall; greedy commits to each symbol as it goes.">
+        <label for="beam">Decoding</label>
+        <select id="beam">
+          <option value="5" selected>Careful (beam 5)</option>
+          <option value="1">Fast (greedy)</option>
+        </select>
+      </span>
+      <span class="spacer"></span>
+      <button class="primary" id="convert">Convert to LaTeX</button>
+    </div>
+    <div id="status"></div>
+  </main>
+
+  <aside id="ledger">
+    <header>Typeset ledger</header>
+    <div id="entries"></div>
+  </aside>
+</div>
+
+<script>
+/* =========================================================================
+   Math2LaTeX frontend
+   -------------------------------------------------------------------------
+   Sections below, in order:
+     1. AUTH      - password login, session check, sign out
+     2. CHATS     - sidebar list: create / select / delete projects
+     3. LEDGER    - right panel: render entries, edit LaTeX, copy, delete, Ask Claude
+     4. CANVAS    - the drawing surface: strokes, undo, clear
+     5. CONVERT   - export canvas -> POST /api/predict -> add entry to ledger
+   State lives in the three variables below; there is no framework, just DOM.
+   ========================================================================= */
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+
+  let chats = [];              // [{id, title, created}] shown in the sidebar
+  let currentChat = null;      // id of the chat being drawn into
+  let claudeEnabled = false;   // true when the server has ANTHROPIC_API_KEY set
+
+  // Thin fetch wrapper: JSON in, JSON out, throws the server's error message.
+  const api = async (path, opts = {}) => {
+    const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    return r.json();
+  };
+
+  /* ---------------------------------------------------------------- 1. AUTH
+     The session is an httpOnly cookie set by POST /api/login. boot() checks it
+     on page load so a returning visitor skips the login screen. */
+  async function boot() {
+    try {
+      const me = await api("/api/me");
+      claudeEnabled = me.claude_enabled;
+      enter();
+    } catch (_) { /* stay on login */ }
+  }
+  $("login-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try {
+      const res = await api("/api/login", { method: "POST",
+        body: JSON.stringify({ password: $("password").value }) });
+      claudeEnabled = res.claude_enabled;
+      enter();
+    } catch (e) { $("login-err").textContent = e.message; }
+  });
+  $("logout").addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    await api("/api/logout", { method: "POST" });
+    location.reload();
+  });
+  async function enter() {
+    $("login").style.display = "none";
+    $("shell").style.display = "grid";
+    chats = await api("/api/chats");
+    if (!chats.length) chats = [await api("/api/chats",
+      { method: "POST", body: JSON.stringify({ title: "Scratchpad" }) })];
+    renderChats();
+    selectChat(chats[0].id);
+  }
+
+  /* --------------------------------------------------------------- 2. CHATS
+     Chats are just named containers for entries, like separate projects. */
+  function renderChats() {
+    const list = $("chat-list");
+    list.innerHTML = "";
+    for (const c of chats) {
+      const item = document.createElement("div");
+      item.className = "chat-item" + (currentChat === c.id ? " active" : "");
+      const name = document.createElement("span");
+      name.textContent = c.title;
+      const del = document.createElement("button");
+      del.className = "del"; del.title = "Delete chat"; del.textContent = "\u00d7";
+      del.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        if (!confirm(`Delete "${c.title}" and its entries?`)) return;
+        await api(`/api/chats/${c.id}`, { method: "DELETE" });
+        chats = chats.filter(x => x.id !== c.id);
+        if (currentChat === c.id) currentChat = null;
+        renderChats();
+        if (!currentChat && chats.length) selectChat(chats[0].id);
+        if (!chats.length) enter();
+      });
+      item.append(name, del);
+      item.addEventListener("click", () => selectChat(c.id));
+      list.appendChild(item);
+    }
+  }
+  $("new-chat").addEventListener("click", async () => {
+    const title = prompt("Name this chat:", "New project");
+    if (title === null) return;
+    const c = await api("/api/chats", { method: "POST", body: JSON.stringify({ title }) });
+    chats.unshift(c);
+    renderChats();
+    selectChat(c.id);
+  });
+  async function selectChat(id) {
+    currentChat = id;
+    const c = chats.find(x => x.id === id);
+    $("chat-name").textContent = c ? c.title : "—";
+    renderChats();
+    const entries = await api(`/api/chats/${id}/entries`);
+    $("entries").innerHTML = "";
+    if (!entries.length) {
+      $("entries").innerHTML = "<div class='empty'>Nothing typeset yet. Draw on the canvas and press Convert.</div>";
+    }
+    for (const e of entries) addEntry(e);
+    $("entries").scrollTop = $("entries").scrollHeight;
+  }
+
+  /* -------------------------------------------------------------- 3. LEDGER
+     Each entry shows: handwriting thumbnail -> typeset math -> raw LaTeX,
+     plus Copy / Delete / (optional) Ask Claude. Clicking the raw LaTeX makes
+     it editable; Enter saves the correction to the server. */
+  function renderMath(el, latex) {
+    try { katex.render(latex, el, { throwOnError: true, displayMode: false }); }
+    catch (_) { el.textContent = latex; }
+  }
+  function addEntry(e) {
+    const empty = $("entries").querySelector(".empty");
+    if (empty) empty.remove();
+    const box = document.createElement("div");
+    box.className = "entry"; box.dataset.id = e.id;
+
+    const hand = document.createElement("div");
+    hand.className = "hand";
+    const img = document.createElement("img");
+    img.src = e.thumb; img.alt = "your handwriting";
+    const arrow = document.createElement("span");
+    arrow.className = "arrow"; arrow.textContent = "\u2192";
+    hand.append(img, arrow);
+
+    const typeset = document.createElement("div");
+    typeset.className = "typeset";
+    renderMath(typeset, e.latex);
+
+    const codeEl = document.createElement("div");
+    codeEl.className = "code"; codeEl.textContent = e.latex;
+    codeEl.title = "Click to edit, then press Enter";
+    codeEl.addEventListener("click", () => {
+      codeEl.contentEditable = "true"; codeEl.focus();
+    });
+    codeEl.addEventListener("keydown", async (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      codeEl.contentEditable = "false";
+      const updated = await api(`/api/entries/${e.id}`, { method: "PATCH",
+        body: JSON.stringify({ latex: codeEl.textContent }) });
+      renderMath(typeset, updated.latex);
+    });
+    codeEl.addEventListener("blur", () => { codeEl.contentEditable = "false"; });
+
+    const row = document.createElement("div");
+    row.className = "row";
+    const copy = document.createElement("button");
+    copy.className = "small"; copy.textContent = "Copy LaTeX";
+    copy.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(codeEl.textContent);
+      copy.textContent = "Copied"; setTimeout(() => copy.textContent = "Copy LaTeX", 1200);
+    });
+    row.appendChild(copy);
+
+    // Delete this entry from the ledger (and the database).
+    const del = document.createElement("button");
+    del.className = "small ghost danger"; del.textContent = "Delete";
+    del.addEventListener("click", async () => {
+      if (!confirm("Delete this entry?")) return;
+      try {
+        await api(`/api/entries/${e.id}`, { method: "DELETE" });
+        box.remove();
+        if (!$("entries").querySelector(".entry")) {
+          $("entries").innerHTML =
+            "<div class='empty'>Nothing typeset yet. Draw on the canvas and press Convert.</div>";
+        }
+      } catch (err) { alert("Could not delete: " + err.message); }
+    });
+    row.appendChild(del);
+
+    if (claudeEnabled) {
+      const ask = document.createElement("button");
+      ask.className = "small ghost"; ask.textContent = "Ask Claude";
+      ask.addEventListener("click", async () => {
+        ask.disabled = true; ask.textContent = "Thinking\u2026";
+        try {
+          const res = await api(`/api/entries/${e.id}/ask`, { method: "POST" });
+          showAnswer(box, res.answer);
+        } catch (err) { showAnswer(box, "Error: " + err.message); }
+        ask.disabled = false; ask.textContent = "Ask Claude";
+      });
+      row.appendChild(ask);
+    }
+
+    box.append(hand, typeset, codeEl, row);
+    if (e.answer) showAnswer(box, e.answer);
+    $("entries").appendChild(box);
+    $("entries").scrollTop = $("entries").scrollHeight;
+  }
+  function showAnswer(box, text) {
+    let ans = box.querySelector(".answer");
+    if (!ans) {
+      ans = document.createElement("div");
+      ans.className = "answer";
+      box.appendChild(ans);
+    }
+    ans.innerHTML = "<span class='who'>Claude</span>";
+    ans.appendChild(document.createTextNode(text));
+  }
+
+  /* -------------------------------------------------------------- 4. CANVAS
+     Strokes are stored as point arrays and redrawn on every change, which
+     makes undo trivial (pop the last stroke) and keeps lines smooth. The grid
+     background is CSS-only, so it never appears in the exported image. */
+  const canvas = $("board"), ctx = canvas.getContext("2d");
+  let strokes = [], current = null, drawing = false;
+  function pos(ev) {
+    const r = canvas.getBoundingClientRect();
+    return { x: (ev.clientX - r.left) * (canvas.width / r.width),
+             y: (ev.clientY - r.top) * (canvas.height / r.height) };
+  }
+  function redraw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = ctx.lineJoin = "round";
+    ctx.strokeStyle = "#14161f";
+    for (const s of strokes) {
+      ctx.lineWidth = s.size;
+      ctx.beginPath();
+      s.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+      if (s.points.length === 1) ctx.lineTo(s.points[0].x + 0.1, s.points[0].y);
+      ctx.stroke();
+    }
+  }
+  canvas.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    canvas.setPointerCapture(ev.pointerId);
+    drawing = true;
+    current = { size: parseInt($("pen-size").value, 10), points: [pos(ev)] };
+    strokes.push(current); redraw();
+  });
+  canvas.addEventListener("pointermove", (ev) => {
+    if (!drawing) return;
+    ev.preventDefault();
+    current.points.push(pos(ev)); redraw();
+  });
+  const stop = () => { drawing = false; current = null; };
+  canvas.addEventListener("pointerup", stop);
+  canvas.addEventListener("pointercancel", stop);
+  $("undo").addEventListener("click", () => { strokes.pop(); redraw(); });
+  $("clear").addEventListener("click", () => { strokes = []; redraw(); });
+  document.addEventListener("keydown", (ev) => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z"
+        && ev.target.tagName !== "INPUT" && !ev.target.isContentEditable) {
+      ev.preventDefault(); strokes.pop(); redraw();
+    }
+  });
+
+  /* ------------------------------------------------------------- 5. CONVERT
+     Redraw the strokes onto an opaque white canvas (the model was trained on
+     dark ink / white paper), POST it as a PNG, then append the result. */
+  $("convert").addEventListener("click", async () => {
+    if (!strokes.length) { $("status").textContent = "Draw something first."; return; }
+    if (!currentChat) { $("status").textContent = "Create a chat first."; return; }
+    $("convert").disabled = true;
+    $("status").textContent = "Reading your handwriting\u2026";
+    try {
+      const out = document.createElement("canvas");
+      out.width = canvas.width; out.height = canvas.height;
+      const octx = out.getContext("2d");
+      octx.fillStyle = "#ffffff"; octx.fillRect(0, 0, out.width, out.height);
+      octx.drawImage(canvas, 0, 0);
+      const blob = await new Promise(res => out.toBlob(res, "image/png"));
+      const fd = new FormData();
+      fd.append("chat_id", currentChat);
+      fd.append("image", blob, "drawing.png");
+      fd.append("beam", $("beam").value);   // 1 = greedy, >1 = beam search
+      const r = await fetch("/api/predict", { method: "POST", body: fd });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      addEntry(await r.json());
+      strokes = []; redraw();
+      $("status").textContent = "";
+    } catch (e) {
+      $("status").textContent = "Error: " + e.message;
+    }
+    $("convert").disabled = false;
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
